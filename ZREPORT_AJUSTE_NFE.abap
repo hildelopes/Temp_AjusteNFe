@@ -43,7 +43,8 @@ DATA: gt_nfdoc   TYPE TABLE OF ty_nfdoc,
 
 SELECTION-SCREEN BEGIN OF BLOCK b1 WITH FRAME.
   SELECT-OPTIONS: s_docnum FOR j_1bnfdoc-docnum OBLIGATORY.
-  PARAMETERS:     p_mode   TYPE c DEFAULT 'N'.
+  PARAMETERS:     p_class  TYPE j_1bnflin-classtrib DEFAULT '410999',
+                  p_mode   TYPE c DEFAULT 'N'.
 SELECTION-SCREEN END OF BLOCK b1.
 
 START-OF-SELECTION.
@@ -133,7 +134,7 @@ FORM f_bdc_ajuste.
     PERFORM f_bdc_field  USING 'J_1BDYLIN-TAXLW4'     gs_nflin-taxlw4       CHANGING lt_bdcdata.
     PERFORM f_bdc_field  USING 'J_1BDYLIN-NBM'        gs_nflin-nbm          CHANGING lt_bdcdata.
     PERFORM f_bdc_field  USING 'J_1BDYLIN-TAXLW5'     gs_nflin-taxlw5       CHANGING lt_bdcdata.
-    PERFORM f_bdc_field  USING 'J_1BDYLIN-CLASSTRIB'  gs_nflin-classtrib    CHANGING lt_bdcdata.
+    PERFORM f_bdc_field  USING 'J_1BDYLIN-CLASSTRIB'  p_class               CHANGING lt_bdcdata.
     PERFORM f_bdc_field  USING 'BDC_SUBSCR'
       'SAPLJ1BB2                               3110SUB1'                     CHANGING lt_bdcdata.
     PERFORM f_bdc_field  USING 'J_1BDYLIN-COD_CTA'    gs_nflin-cod_cta      CHANGING lt_bdcdata.
