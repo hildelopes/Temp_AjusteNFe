@@ -1,6 +1,6 @@
 *&---------------------------------------------------------------------*
 *& Report  ZREPORT_AJUSTE_NFE
-*& Ajuste de NF-e via BDC - Transação J1B2N
+*& Ajuste de NF-e via BDC - Transação J1B2N (múltiplos documentos)
 *&---------------------------------------------------------------------*
 REPORT zreport_ajuste_nfe.
 
@@ -33,50 +33,39 @@ TYPES: BEGIN OF ty_nflin,
          meins_trib TYPE j_1bnflin-meins_trib,
        END OF ty_nflin.
 
-DATA: gs_nfdoc   TYPE ty_nfdoc,
+DATA: gt_nfdoc   TYPE TABLE OF ty_nfdoc,
+      gs_nfdoc   TYPE ty_nfdoc,
       gt_nflin   TYPE TABLE OF ty_nflin,
       gs_nflin   TYPE ty_nflin,
       gv_mode    TYPE c VALUE 'N',
-      gv_docnum  TYPE j_1bnfdoc-docnum,
       gv_date_f  TYPE char10,
       gv_menge_f TYPE char18.
 
 SELECTION-SCREEN BEGIN OF BLOCK b1 WITH FRAME.
-  PARAMETERS: p_docnum TYPE j_1bnfdoc-docnum OBLIGATORY,
-              p_mode   TYPE c DEFAULT 'N'.
+  SELECT-OPTIONS: s_docnum FOR j_1bnfdoc-docnum OBLIGATORY.
+  PARAMETERS:     p_mode   TYPE c DEFAULT 'N'.
 SELECTION-SCREEN END OF BLOCK b1.
 
 START-OF-SELECTION.
 
-  gv_docnum = p_docnum.
-  gv_mode   = p_mode.
+  gv_mode = p_mode.
 
-  PERFORM f_get_nfe_data.
-  PERFORM f_bdc_ajuste.
-
-*----------------------------------------------------------------------*
-FORM f_get_nfe_data.
-
-  SELECT SINGLE docnum series docdat pstdat nfenum
-    INTO CORRESPONDING FIELDS OF gs_nfdoc
+  " Buscar todos os documentos da seleção
+  SELECT docnum series docdat pstdat nfenum
+    INTO CORRESPONDING FIELDS OF TABLE gt_nfdoc
     FROM j_1bnfdoc
-   WHERE docnum = gv_docnum.
+   WHERE docnum IN s_docnum.
 
   IF sy-subrc <> 0.
-    MESSAGE |Documento { gv_docnum } não encontrado na J_1BNFDOC.| TYPE 'E'.
+    MESSAGE 'Nenhum documento encontrado para a seleção informada.' TYPE 'E'.
   ENDIF.
 
-  SELECT docnum itmnum itmtyp charg cfop taxlw1 matorg taxlw2
-         taxlw4 nbm taxlw5 classtrib cod_cta num_item menge_trib meins_trib
-    INTO CORRESPONDING FIELDS OF TABLE gt_nflin
-    FROM j_1bnflin
-   WHERE docnum = gv_docnum.
-
-  IF sy-subrc <> 0.
-    MESSAGE |Nenhum item encontrado para o documento { gv_docnum }.| TYPE 'E'.
-  ENDIF.
-
-ENDFORM.
+  " Processar cada documento
+  LOOP AT gt_nfdoc INTO gs_nfdoc.
+    WRITE: / |===> Processando documento: { gs_nfdoc-docnum }|.
+    PERFORM f_bdc_ajuste.
+    SKIP.
+  ENDLOOP.
 
 *----------------------------------------------------------------------*
 FORM f_bdc_ajuste.
@@ -84,29 +73,42 @@ FORM f_bdc_ajuste.
   DATA: lt_bdcdata TYPE TABLE OF bdcdata,
         lt_bdcmsg  TYPE TABLE OF bdcmsgcoll.
 
+  " Buscar itens do documento atual
+  CLEAR gt_nflin.
+  SELECT docnum itmnum itmtyp charg cfop taxlw1 matorg taxlw2
+         taxlw4 nbm taxlw5 classtrib cod_cta num_item menge_trib meins_trib
+    INTO CORRESPONDING FIELDS OF TABLE gt_nflin
+    FROM j_1bnflin
+   WHERE docnum = gs_nfdoc-docnum.
+
+  IF sy-subrc <> 0.
+    WRITE: / |  AVISO: Nenhum item encontrado para o documento { gs_nfdoc-docnum }. Pulando.|.
+    RETURN.
+  ENDIF.
+
   WRITE gs_nfdoc-docdat TO gv_date_f DD/MM/YYYY.
   REPLACE ALL OCCURRENCES OF '/' IN gv_date_f WITH '.'.
 
   " --- Tela inicial: informar DOCNUM ---
   PERFORM f_bdc_dynpro USING 'SAPMJ1B1' '1100' CHANGING lt_bdcdata.
-  PERFORM f_bdc_field  USING 'BDC_CURSOR'       'J_1BDYDOC-DOCNUM' CHANGING lt_bdcdata.
-  PERFORM f_bdc_field  USING 'BDC_OKCODE'       '/00'              CHANGING lt_bdcdata.
-  PERFORM f_bdc_field  USING 'J_1BDYDOC-DOCNUM' gv_docnum          CHANGING lt_bdcdata.
+  PERFORM f_bdc_field  USING 'BDC_CURSOR'       'J_1BDYDOC-DOCNUM'  CHANGING lt_bdcdata.
+  PERFORM f_bdc_field  USING 'BDC_OKCODE'       '/00'               CHANGING lt_bdcdata.
+  PERFORM f_bdc_field  USING 'J_1BDYDOC-DOCNUM' gs_nfdoc-docnum     CHANGING lt_bdcdata.
 
   " --- Tela 2000: cabeçalho ---
   PERFORM f_bdc_dynpro USING 'SAPLJ1BB2' '2000' CHANGING lt_bdcdata.
-  PERFORM f_bdc_field  USING 'BDC_OKCODE'       '=LIDE'            CHANGING lt_bdcdata.
-  PERFORM f_bdc_field  USING 'J_1BDYDOC-SERIES' gs_nfdoc-series    CHANGING lt_bdcdata.
-  PERFORM f_bdc_field  USING 'J_1BDYDOC-DOCDAT' gv_date_f          CHANGING lt_bdcdata.
-  PERFORM f_bdc_field  USING 'J_1BDYDOC-PSTDAT' gv_date_f          CHANGING lt_bdcdata.
+  PERFORM f_bdc_field  USING 'BDC_OKCODE'       '=LIDE'             CHANGING lt_bdcdata.
+  PERFORM f_bdc_field  USING 'J_1BDYDOC-SERIES' gs_nfdoc-series     CHANGING lt_bdcdata.
+  PERFORM f_bdc_field  USING 'J_1BDYDOC-DOCDAT' gv_date_f           CHANGING lt_bdcdata.
+  PERFORM f_bdc_field  USING 'J_1BDYDOC-PSTDAT' gv_date_f           CHANGING lt_bdcdata.
   PERFORM f_bdc_field  USING 'BDC_SUBSCR'
-    'SAPLJ1BB2                               5400MAIN_PARTNER'      CHANGING lt_bdcdata.
+    'SAPLJ1BB2                               5400MAIN_PARTNER'       CHANGING lt_bdcdata.
   PERFORM f_bdc_field  USING 'BDC_SUBSCR'
-    'SAPLJ1BB2                               2100HEADER_TAB'        CHANGING lt_bdcdata.
+    'SAPLJ1BB2                               2100HEADER_TAB'         CHANGING lt_bdcdata.
   PERFORM f_bdc_field  USING 'BDC_CURSOR'       'J_1BDYLIN-TMISS(01)' CHANGING lt_bdcdata.
   PERFORM f_bdc_field  USING 'BDC_SUBSCR'
-    'SAPLJ1BB2                               2002NF_NUMBER'         CHANGING lt_bdcdata.
-  PERFORM f_bdc_field  USING 'J_1BDYDOC-NFENUM' gs_nfdoc-nfenum    CHANGING lt_bdcdata.
+    'SAPLJ1BB2                               2002NF_NUMBER'          CHANGING lt_bdcdata.
+  PERFORM f_bdc_field  USING 'J_1BDYDOC-NFENUM' gs_nfdoc-nfenum     CHANGING lt_bdcdata.
 
   " --- Tela 3000: itens ---
   LOOP AT gt_nflin INTO gs_nflin.
@@ -115,39 +117,39 @@ FORM f_bdc_ajuste.
     CONDENSE gv_menge_f.
 
     PERFORM f_bdc_dynpro USING 'SAPLJ1BB2' '3000' CHANGING lt_bdcdata.
-    PERFORM f_bdc_field  USING 'BDC_OKCODE'           '=SAVE'              CHANGING lt_bdcdata.
-    PERFORM f_bdc_field  USING 'J_1BDYDOC-SERIES'     gs_nfdoc-series      CHANGING lt_bdcdata.
+    PERFORM f_bdc_field  USING 'BDC_OKCODE'           '=SAVE'               CHANGING lt_bdcdata.
+    PERFORM f_bdc_field  USING 'J_1BDYDOC-SERIES'     gs_nfdoc-series       CHANGING lt_bdcdata.
     PERFORM f_bdc_field  USING 'BDC_SUBSCR'
-      'SAPLJ1BB2                               5400MAIN_PARTNER'            CHANGING lt_bdcdata.
+      'SAPLJ1BB2                               5400MAIN_PARTNER'             CHANGING lt_bdcdata.
     PERFORM f_bdc_field  USING 'BDC_SUBSCR'
-      'SAPLJ1BB2                               3100ITEM_TABS'               CHANGING lt_bdcdata.
-    PERFORM f_bdc_field  USING 'BDC_CURSOR'           'J_1BDYLIN-CLASSTRIB' CHANGING lt_bdcdata.
-    PERFORM f_bdc_field  USING 'J_1BDYLIN-ITMTYP'     gs_nflin-itmtyp      CHANGING lt_bdcdata.
-    PERFORM f_bdc_field  USING 'J_1BDYLIN-CHARG'      gs_nflin-charg       CHANGING lt_bdcdata.
-    PERFORM f_bdc_field  USING 'J_1BDYLIN-CFOP'       gs_nflin-cfop        CHANGING lt_bdcdata.
-    PERFORM f_bdc_field  USING 'J_1BDYLIN-TAXLW1'     gs_nflin-taxlw1      CHANGING lt_bdcdata.
-    PERFORM f_bdc_field  USING 'J_1BDYLIN-MATORG'     gs_nflin-matorg      CHANGING lt_bdcdata.
-    PERFORM f_bdc_field  USING 'J_1BDYLIN-TAXLW2'     gs_nflin-taxlw2      CHANGING lt_bdcdata.
-    PERFORM f_bdc_field  USING 'J_1BDYLIN-TAXLW4'     gs_nflin-taxlw4      CHANGING lt_bdcdata.
-    PERFORM f_bdc_field  USING 'J_1BDYLIN-NBM'        gs_nflin-nbm         CHANGING lt_bdcdata.
-    PERFORM f_bdc_field  USING 'J_1BDYLIN-TAXLW5'     gs_nflin-taxlw5      CHANGING lt_bdcdata.
-    PERFORM f_bdc_field  USING 'J_1BDYLIN-CLASSTRIB'  gs_nflin-classtrib   CHANGING lt_bdcdata.
+      'SAPLJ1BB2                               3100ITEM_TABS'                CHANGING lt_bdcdata.
+    PERFORM f_bdc_field  USING 'BDC_CURSOR'           'J_1BDYLIN-CLASSTRIB'  CHANGING lt_bdcdata.
+    PERFORM f_bdc_field  USING 'J_1BDYLIN-ITMTYP'     gs_nflin-itmtyp       CHANGING lt_bdcdata.
+    PERFORM f_bdc_field  USING 'J_1BDYLIN-CHARG'      gs_nflin-charg        CHANGING lt_bdcdata.
+    PERFORM f_bdc_field  USING 'J_1BDYLIN-CFOP'       gs_nflin-cfop         CHANGING lt_bdcdata.
+    PERFORM f_bdc_field  USING 'J_1BDYLIN-TAXLW1'     gs_nflin-taxlw1       CHANGING lt_bdcdata.
+    PERFORM f_bdc_field  USING 'J_1BDYLIN-MATORG'     gs_nflin-matorg       CHANGING lt_bdcdata.
+    PERFORM f_bdc_field  USING 'J_1BDYLIN-TAXLW2'     gs_nflin-taxlw2       CHANGING lt_bdcdata.
+    PERFORM f_bdc_field  USING 'J_1BDYLIN-TAXLW4'     gs_nflin-taxlw4       CHANGING lt_bdcdata.
+    PERFORM f_bdc_field  USING 'J_1BDYLIN-NBM'        gs_nflin-nbm          CHANGING lt_bdcdata.
+    PERFORM f_bdc_field  USING 'J_1BDYLIN-TAXLW5'     gs_nflin-taxlw5       CHANGING lt_bdcdata.
+    PERFORM f_bdc_field  USING 'J_1BDYLIN-CLASSTRIB'  gs_nflin-classtrib    CHANGING lt_bdcdata.
     PERFORM f_bdc_field  USING 'BDC_SUBSCR'
-      'SAPLJ1BB2                               3110SUB1'                    CHANGING lt_bdcdata.
-    PERFORM f_bdc_field  USING 'J_1BDYLIN-COD_CTA'    gs_nflin-cod_cta     CHANGING lt_bdcdata.
-    PERFORM f_bdc_field  USING 'J_1BDYLIN-NUM_ITEM'   gs_nflin-num_item    CHANGING lt_bdcdata.
-    PERFORM f_bdc_field  USING 'J_1BDYLIN-MENGE_TRIB' gv_menge_f           CHANGING lt_bdcdata.
-    PERFORM f_bdc_field  USING 'J_1BDYLIN-MEINS_TRIB' gs_nflin-meins_trib  CHANGING lt_bdcdata.
+      'SAPLJ1BB2                               3110SUB1'                     CHANGING lt_bdcdata.
+    PERFORM f_bdc_field  USING 'J_1BDYLIN-COD_CTA'    gs_nflin-cod_cta      CHANGING lt_bdcdata.
+    PERFORM f_bdc_field  USING 'J_1BDYLIN-NUM_ITEM'   gs_nflin-num_item     CHANGING lt_bdcdata.
+    PERFORM f_bdc_field  USING 'J_1BDYLIN-MENGE_TRIB' gv_menge_f            CHANGING lt_bdcdata.
+    PERFORM f_bdc_field  USING 'J_1BDYLIN-MEINS_TRIB' gs_nflin-meins_trib   CHANGING lt_bdcdata.
     PERFORM f_bdc_field  USING 'BDC_SUBSCR'
-      'SAPLJ1BB2                               2002NF_NUMBER'               CHANGING lt_bdcdata.
-    PERFORM f_bdc_field  USING 'J_1BDYDOC-NFENUM'     gs_nfdoc-nfenum      CHANGING lt_bdcdata.
+      'SAPLJ1BB2                               2002NF_NUMBER'                CHANGING lt_bdcdata.
+    PERFORM f_bdc_field  USING 'J_1BDYDOC-NFENUM'     gs_nfdoc-nfenum       CHANGING lt_bdcdata.
 
   ENDLOOP.
 
   " --- Retorno à tela inicial ---
   PERFORM f_bdc_dynpro USING 'SAPMJ1B1' '1100' CHANGING lt_bdcdata.
-  PERFORM f_bdc_field  USING 'BDC_OKCODE' '/EBACK'           CHANGING lt_bdcdata.
-  PERFORM f_bdc_field  USING 'BDC_CURSOR' 'J_1BDYDOC-DOCNUM' CHANGING lt_bdcdata.
+  PERFORM f_bdc_field  USING 'BDC_OKCODE' '/EBACK'            CHANGING lt_bdcdata.
+  PERFORM f_bdc_field  USING 'BDC_CURSOR' 'J_1BDYDOC-DOCNUM'  CHANGING lt_bdcdata.
 
   CALL TRANSACTION 'J1B2N'
     USING    lt_bdcdata
@@ -196,15 +198,15 @@ FORM f_check_messages USING pt_msg TYPE TABLE.
         msgv4               = ls_msg-msgv4
       IMPORTING
         message_text_output = lv_txt.
-    WRITE: / |{ ls_msg-msgtyp }: { lv_txt }|.
+    WRITE: / |  { ls_msg-msgtyp }: { lv_txt }|.
     IF ls_msg-msgtyp CA 'EA'.
       lv_erro = abap_true.
     ENDIF.
   ENDLOOP.
 
   IF lv_erro = abap_true.
-    WRITE: / '*** BDC finalizado com ERRO. ***'.
+    WRITE: / '  *** ERRO no BDC. ***'.
   ELSE.
-    WRITE: / '>>> BDC executado com sucesso. <<<'.
+    WRITE: / '  >>> BDC executado com sucesso. <<<'.
   ENDIF.
 ENDFORM.
