@@ -43,8 +43,7 @@ TYPES: BEGIN OF ty_nflin,
 *----------------------------------------------------------------------*
 * Dados globais
 *----------------------------------------------------------------------*
-DATA: tit        TYPE char30,
-      gs_nfdoc   TYPE ty_nfdoc,
+DATA: gs_nfdoc   TYPE ty_nfdoc,
       gt_nflin   TYPE TABLE OF ty_nflin,
       gs_nflin   TYPE ty_nflin,
       gt_bdcdata TYPE TABLE OF bdcdata,
@@ -60,16 +59,10 @@ DATA: tit        TYPE char30,
 *----------------------------------------------------------------------*
 * Selection screen
 *----------------------------------------------------------------------*
-SELECTION-SCREEN BEGIN OF BLOCK b1 WITH FRAME TITLE tit.
+SELECTION-SCREEN BEGIN OF BLOCK b1 WITH FRAME.
   PARAMETERS: p_docnum TYPE j_1bnfdoc-docnum OBLIGATORY,
               p_mode   TYPE c DEFAULT 'N'.   " N=Batch, A=Foreground
 SELECTION-SCREEN END OF BLOCK b1.
-
-*----------------------------------------------------------------------*
-* Initialization
-*----------------------------------------------------------------------*
-INITIALIZATION.
-  tit = 'Parâmetros de Execução'.
 
 *----------------------------------------------------------------------*
 * Start-of-selection
